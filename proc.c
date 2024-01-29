@@ -88,6 +88,9 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
+  // OUR CODE {
+  p->isthread = 0;
+  // OUR CODE }
 
   release(&ptable.lock);
 
@@ -138,6 +141,9 @@ userinit(void)
   p->tf->eflags = FL_IF;
   p->tf->esp = PGSIZE;
   p->tf->eip = 0;  // beginning of initcode.S
+  // OUR CODE {
+  p->isthread = 0;
+  // OUR CODE }
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
@@ -160,7 +166,7 @@ growproc(int n)
 {
   uint sz;
   struct proc *curproc = myproc();
-
+  
   sz = curproc->sz;
   if(n > 0){
     if((sz = allocuvm(curproc->pgdir, sz, sz + n)) == 0)
@@ -255,9 +261,19 @@ exit(void)
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == curproc){
-      p->parent = initproc;
-      if(p->state == ZOMBIE)
-        wakeup1(initproc);
+      // OUR CODE {
+      if (p->isthread == 1){
+        // p->state = ZOMBIE;
+         kfree(p->kstack);
+         p->kstack = 0;
+         p->state = UNUSED;
+      }
+      else {
+        p->parent = initproc;
+        if(p->state == ZOMBIE)
+          wakeup1(initproc);   
+        } // added closing braces 
+        // OUR CODE }
     }
   }
 
@@ -272,8 +288,10 @@ exit(void)
 int
 wait(void)
 {
-  struct proc *p;
-  int havekids, pid;
+  // OUR CODE {
+  struct proc *p, *q;
+  int havekids, pid, found;
+  // OUR CODE }
   struct proc *curproc = myproc();
   
   acquire(&ptable.lock);
@@ -284,12 +302,21 @@ wait(void)
       if(p->parent != curproc)
         continue;
       havekids = 1;
+      // OUR CODE {
+      found = 0;
+      // OUR CODE }
       if(p->state == ZOMBIE){
         // Found one.
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
-        freevm(p->pgdir);
+        // OUR CODE {
+        for (q = ptable.proc; q < &ptable.proc[NPROC]; q++)
+          if (q->isthread && q->parent == p && q != p)
+            found = 1;
+        if (!found)
+          freevm(p->pgdir);
+        // OUR CODE }
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
@@ -480,11 +507,24 @@ int
 kill(int pid)
 {
   struct proc *p;
+  // OUR CODE {
+  struct proc *pc;
+  // OUR CODE }
 
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->pid == pid){
       p->killed = 1;
+      // OUR CODE {
+      for(pc = ptable.proc; pc < &ptable.proc[NPROC]; pc++){
+         if ((pc->parent == p) && (pc->isthread == 1)){
+            pc->killed = 1;
+            if (pc->state == SLEEPING)
+               pc->state = RUNNABLE;
+         }
+      }
+      // OUR CODE }
+
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING)
         p->state = RUNNABLE;
@@ -532,3 +572,121 @@ procdump(void)
     cprintf("\n");
   }
 }
+
+// OUR CODE {
+
+// print Hello World!!!
+// simple test of systemcall
+int example()
+{
+  cprintf("Hello World!!!\n");
+  return 0;
+}
+
+int clone(void *stack)
+{
+  // i is acounter of for loop and pid is the output of this sys_call
+  int i, pid, added_size;
+  // hold father thread in main_thread struct
+  struct proc *main_thread = myproc();
+  // create new child thread and hold it in child_thread struct
+  struct proc *child_thread;
+
+  // if the instructionn (child_thread = allocproc()) isn't done succefully we rturn -1
+  if((child_thread = allocproc()) == 0)
+    return -1;
+  
+  // Grow size of process because of new stack
+  acquire(&ptable.lock);
+  if ((added_size = growproc(PGSIZE)) < 0)
+  {
+    cprintf("Could not grow process.\n");
+    release(&ptable.lock);
+    return -1;
+  }
+  cprintf("current size of process: %d\n", (int)main_thread->sz);
+  release(&ptable.lock);
+
+  // now we should fill some fields o shild_thread struct
+  // in thread the parent thread and the child are point to one pagetable
+  child_thread->pgdir = main_thread->pgdir; 
+  child_thread->sz = main_thread->sz;
+  child_thread->parent = main_thread;
+  child_thread->isthread = 1;                                       // show that this is a thread and set the related field in proc struct
+
+  *child_thread->tf = *main_thread->tf;                             // trap frame of main thread and child thread are the same
+  child_thread->tf->eax = 0;                                        // Clear %eax so that thread returns 0 in the child.
+  child_thread->stack = stack;                                      // set the stack field in child thread 
+  
+  // copy the parent stack in child stack and set stack pointer
+  void *down_copy = (void*)main_thread->tf->ebp + 16;
+  void *top_copy = (void*)main_thread->tf->esp;
+  uint copysize = (uint)(down_copy - top_copy);
+  child_thread->tf->esp = (uint) (stack + PGSIZE - copysize);
+  child_thread->tf->ebp = (uint) (stack + PGSIZE - 16);
+  memmove(stack + PGSIZE - copysize,top_copy,copysize);
+
+  // copy the open files
+  for(i = 0; i < NOFILE; i++)
+    if(main_thread->ofile[i])
+      child_thread->ofile[i] = filedup(main_thread->ofile[i]);
+  child_thread->cwd = idup(main_thread->cwd);
+
+  safestrcpy(child_thread->name, main_thread->name, sizeof(main_thread->name));
+
+  pid = child_thread->pid;
+
+  acquire(&ptable.lock);
+  child_thread->state = RUNNABLE;
+  release(&ptable.lock);
+
+  return pid;  
+}
+
+int join()
+{
+  struct proc *p;
+  int haveKids, pid;
+  struct proc *curproc = myproc();
+
+  acquire(&ptable.lock);
+  for(;;) {
+    haveKids = 0;
+
+    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
+      if (p->parent != curproc || p->isthread != 1 )
+        continue;
+      haveKids = 1;
+
+      if (p->state == ZOMBIE) {
+        pid = p->pid;
+        kfree(p->kstack);
+        p->kstack = 0;
+        p->state = UNUSED;
+        p->pid = 0;
+        p->parent = 0;
+        p->name[0] = 0;
+        p->killed = 0;
+        p->isthread = 0;
+
+        // Decrease size of memory because of freeing the stack
+        growproc(-1 * PGSIZE);
+        cprintf("current size of process: %d\n", (int)curproc->sz);
+
+        release(&ptable.lock);
+        return pid;
+      }
+    }
+    
+    if (!haveKids || curproc->killed) {
+      release(&ptable.lock);
+      return -1;
+    }
+
+    sleep(curproc, &ptable.lock);
+
+  }
+  return 0;
+}
+
+// OUR CODE }
