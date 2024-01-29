@@ -89,3 +89,39 @@ sys_uptime(void)
   release(&tickslock);
   return xticks;
 }
+
+// OUR CODE {
+int
+sys_example(void)
+{
+  example();
+  return 0;
+}
+
+int sys_clone(void)
+{
+  int func_add;
+  int arg;
+  int stack_add;
+
+  if (argint(0, &func_add) < 0){
+    cprintf("Error! somthing wrong with the entry function");
+    return -1;
+  }
+  if (argint(1, &arg) < 0){
+    cprintf("Error! somthing wrong with the args");
+    return -1;
+  }
+  if (argint(2, &stack_add) < 0){
+    cprintf("Error! somthing wrong with the entry stack");
+    return -1;
+  }
+  return clone((void *)stack_add);
+  
+}
+
+int sys_join(void)
+{
+  return join();
+}
+// OUR CODE }
