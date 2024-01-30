@@ -7,6 +7,12 @@
 #include "mmu.h"
 #include "proc.h"
 
+// OUR CODE {  you can add these in defs.h
+int             example(void);
+int             clone(void *stack);
+int             join();
+// OUR CODE }
+
 int
 sys_fork(void)
 {
