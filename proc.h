@@ -49,12 +49,11 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
-  // OUR CODE {
-  struct proc *pthread;        // Parent thread
-  int isthread;                // we change to indicate if it is a thread
-  void *stack;
-  int vruntime;                // measure how much time a process has had on the CPU
-  // OUR CODE }
+
+  // add this property for keeping thread stack address
+  void *threadstack; // Address of thread stack to be freed
+  // add this property for measuring how much time a process has had on the CPU
+  int vruntime; // measure how much time a process has had on the CPU
 };
 
 // Process memory is laid out contiguously, low addresses first:
@@ -62,3 +61,7 @@ struct proc {
 //   original data and bss
 //   fixed-size stack
 //   expandable heap
+struct proc_info {
+    int pid;
+    int memsize; // in bytes
+};

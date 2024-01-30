@@ -7,12 +7,6 @@
 #include "mmu.h"
 #include "proc.h"
 
-// OUR CODE {  you can add these in defs.h
-int             example(void);
-int             clone(void *stack);
-int             join();
-// OUR CODE }
-
 int
 sys_fork(void)
 {
@@ -83,11 +77,18 @@ sys_sleep(void)
   return 0;
 }
 
+
 // return how many clock tick interrupts have occurred
 // since start.
 int
 sys_uptime(void)
 {
+  // uint: unsigned integer (positive or zero)
+  // acquire: lock a semaphore
+  // release: unlock a semaphore
+  // tickslock: the semaphore used by uptime() 
+  //            to protect system time from changing
+
   uint xticks;
 
   acquire(&tickslock);
@@ -96,38 +97,32 @@ sys_uptime(void)
   return xticks;
 }
 
-// OUR CODE {
 int
-sys_example(void)
+sys_clone(void)
 {
-  example();
-  return 0;
+  // arg1: the first argument to pass to the function
+  // arg2: the second argument to pass to the function
+  // stack: the stack pointer for the new process
+  // return: the process ID of the new process if 
+  //         successful, -1 if an error occurred
+  // argint: get the value of an integer register
+
+  int func, arg1, arg2, stack;
+  if(argint(0, &func)<0 || argint(1, &arg1)<0 || argint(2, &arg2)<0 || argint(3, &stack)<0)
+    return -1;
+  return clone((void *)func, (void *)arg1, (void *)arg2, (void *)stack);
 }
 
-int sys_clone(void)
+int
+sys_join(void)
 {
-  int func_add;
-  int arg;
-  int stack_add;
-
-  if (argint(0, &func_add) < 0){
-    cprintf("Error! somthing wrong with the entry function");
-    return -1;
-  }
-  if (argint(1, &arg) < 0){
-    cprintf("Error! somthing wrong with the args");
-    return -1;
-  }
-  if (argint(2, &stack_add) < 0){
-    cprintf("Error! somthing wrong with the entry stack");
-    return -1;
-  }
-  return clone((void *)stack_add);
+  // stack: the stack pointer of the process to join
+  // return: 0 if successful, -1 if an error occurred
+  // argint:  get the value of a pointer register
   
+  void **stack;
+  int arg;
+  arg = argint(0, &arg);
+  stack = (void**) arg;
+  return join(stack);
 }
-
-int sys_join(void)
-{
-  return join();
-}
-// OUR CODE }

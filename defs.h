@@ -9,6 +9,7 @@ struct spinlock;
 struct sleeplock;
 struct stat;
 struct superblock;
+struct proc_info;
 
 // bio.c
 void            binit(void);
@@ -103,6 +104,10 @@ int             pipewrite(struct pipe*, char*, int);
 
 //PAGEBREAK: 16
 // proc.c
+
+// define proc_dump system call 
+void            proc_dump(struct proc_info *process, int *size);
+
 int             cpuid(void);
 void            exit(void);
 int             fork(void);
@@ -155,6 +160,10 @@ int             argstr(int, char**);
 int             fetchint(uint, int*);
 int             fetchstr(uint, char**);
 void            syscall(void);
+
+// define clone and join system calls
+int             clone(void(*fcn)(void*, void*), void*, void*, void*);
+int             join(void**);
 
 // timer.c
 void            timerinit(void);

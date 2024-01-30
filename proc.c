@@ -6,9 +6,8 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
-// OUR CODE {
-#define INT_MAX 2147483647 
-// OUR CODE }
+
+#define INT_MAX 2147483647
 
 struct {
   struct spinlock lock;
@@ -91,9 +90,6 @@ allocproc(void)
 found:
   p->state = EMBRYO;
   p->pid = nextpid++;
-  // OUR CODE {
-  p->isthread = 0;
-  // OUR CODE }
 
   release(&ptable.lock);
 
@@ -144,9 +140,6 @@ userinit(void)
   p->tf->eflags = FL_IF;
   p->tf->esp = PGSIZE;
   p->tf->eip = 0;  // beginning of initcode.S
-  // OUR CODE {
-  p->isthread = 0;
-  // OUR CODE }
 
   safestrcpy(p->name, "initcode", sizeof(p->name));
   p->cwd = namei("/");
@@ -169,7 +162,7 @@ growproc(int n)
 {
   uint sz;
   struct proc *curproc = myproc();
-  
+
   sz = curproc->sz;
   if(n > 0){
     if((sz = allocuvm(curproc->pgdir, sz, sz + n)) == 0)
@@ -264,19 +257,9 @@ exit(void)
   // Pass abandoned children to init.
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->parent == curproc){
-      // OUR CODE {
-      if (p->isthread == 1){
-        // p->state = ZOMBIE;
-         kfree(p->kstack);
-         p->kstack = 0;
-         p->state = UNUSED;
-      }
-      else {
-        p->parent = initproc;
-        if(p->state == ZOMBIE)
-          wakeup1(initproc);   
-        }
-        // OUR CODE }
+      p->parent = initproc;
+      if(p->state == ZOMBIE)
+        wakeup1(initproc);
     }
   }
 
@@ -291,10 +274,8 @@ exit(void)
 int
 wait(void)
 {
-  // OUR CODE {
-  struct proc *p, *q;
-  int havekids, pid, found;
-  // OUR CODE }
+  struct proc *p;
+  int havekids, pid;
   struct proc *curproc = myproc();
   
   acquire(&ptable.lock);
@@ -305,25 +286,12 @@ wait(void)
       if(p->parent != curproc)
         continue;
       havekids = 1;
-
-      // OUR CODE {
-      found = 0;
-      // OUR CODE }
-      
       if(p->state == ZOMBIE){
         // Found one.
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
-      
-        // OUR CODE {
-        for (q = ptable.proc; q < &ptable.proc[NPROC]; q++)
-          if (q->isthread && q->parent == p && q != p)
-            found = 1;
-        if (!found)
-          freevm(p->pgdir);
-        // OUR CODE }
-      
+        freevm(p->pgdir);
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
@@ -342,79 +310,6 @@ wait(void)
 
     // Wait for children to exit.  (See wakeup1 call in proc_exit.)
     sleep(curproc, &ptable.lock);  //DOC: wait-sleep
-  }
-}
-
-//PAGEBREAK: 42
-// Per-CPU process scheduler.
-// Each CPU calls scheduler() after setting itself up.
-// Scheduler never returns.  It loops, doing:
-//  - choose a process to run
-//  - swtch to start running that process
-//  - eventually that process transfers control
-//      via swtch back to the scheduler.
-void
-scheduler(void)
-{
-  struct proc *p;
-  struct cpu *c = mycpu();
-  c->proc = 0;
-
-  for(;;){
-    // Enable interrupts on this processor.
-    sti();
-
-    // Loop over process table looking for process to run.
-    acquire(&ptable.lock);
-
-    // OUR CODE {
-
-    struct proc *lowest_vruntime_proc = 0;
-    int min_vruntime = INT_MAX;
-
-    // Find the process with the least virtual runtime
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state == RUNNABLE) {
-        if(p->vruntime < min_vruntime) {
-          lowest_vruntime_proc = p;
-          min_vruntime = p->vruntime;
-        }
-      }
-    }
-
-    // If we found a process to run, switch to it.
-    if(lowest_vruntime_proc) {
-      p = lowest_vruntime_proc;
-      c->proc = p;
-      switchuvm(p);
-      p->state = RUNNING;
-
-      // The quantum can be fixed or dynamic.
-      // For simplicity, let's use a fixed quantum.
-      int quanta = 5;
-
-      // Run the process for the quantum duration.
-      for (int i = 0; i < quanta; i++) {
-        swtch(&(c->scheduler), p->context);
-        if (p->state != RUNNING) {
-          break;  // Process is done running
-        }
-      }
-
-      // Update virtual runtime of the process.
-      // This can be weighted based on priority or other factors.
-      p->vruntime += quanta;
-
-    // OUR CODE }
-
-      switchkvm();
-
-      // Process is done running for now.
-      // It should have changed its p->state before coming back.
-      c->proc = 0;
-    }
-
-    release(&ptable.lock);
   }
 }
 
@@ -543,24 +438,11 @@ int
 kill(int pid)
 {
   struct proc *p;
-  // OUR CODE {
-  struct proc *pc;
-  // OUR CODE }
 
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->pid == pid){
       p->killed = 1;
-      // OUR CODE {
-      for(pc = ptable.proc; pc < &ptable.proc[NPROC]; pc++){
-         if ((pc->parent == p) && (pc->isthread == 1)){
-            pc->killed = 1;
-            if (pc->state == SLEEPING)
-               pc->state = RUNNABLE;
-         }
-      }
-      // OUR CODE }
-
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING)
         p->state = RUNNABLE;
@@ -609,121 +491,199 @@ procdump(void)
   }
 }
 
-// OUR CODE {
 
-// print Hello World!!!
-// simple test of systemcall
-int example()
+//PAGEBREAK: 42
+// Per-CPU process scheduler.
+// Each CPU calls scheduler() after setting itself up.
+// Scheduler never returns.  It loops, doing:
+//  - choose a process to run
+//  - swtch to start running that process
+//  - eventually that process transfers control
+//      via swtch back to the scheduler.
+void
+scheduler(void)
 {
-  cprintf("Hello World!!!\n");
-  return 0;
-}
+  // p: pointer to current process
 
-int clone(void *stack)
-{
-  // i is acounter of for loop and pid is the output of this sys_call
-  int i, pid, added_size;
-  // hold father thread in main_thread struct
-  struct proc *main_thread = myproc();
-  // create new child thread and hold it in child_thread struct
-  struct proc *child_thread;
-
-  // if the instructionn (child_thread = allocproc()) isn't done succefully we rturn -1
-  if((child_thread = allocproc()) == 0)
-    return -1;
-  
-  // Grow size of process because of new stack
-  acquire(&ptable.lock);
-  if ((added_size = growproc(PGSIZE)) < 0)
-  {
-    cprintf("Could not grow process.\n");
-    release(&ptable.lock);
-    return -1;
-  }
-  cprintf("current size of process: %d\n", (int)main_thread->sz);
-  release(&ptable.lock);
-
-  // now we should fill some fields o shild_thread struct
-  // in thread the parent thread and the child are point to one pagetable
-  child_thread->pgdir = main_thread->pgdir; 
-  child_thread->sz = main_thread->sz;
-  child_thread->parent = main_thread;
-  child_thread->isthread = 1;                                       // show that this is a thread and set the related field in proc struct
-
-  *child_thread->tf = *main_thread->tf;                             // trap frame of main thread and child thread are the same
-  child_thread->tf->eax = 0;                                        // Clear %eax so that thread returns 0 in the child.
-  child_thread->stack = stack;                                      // set the stack field in child thread 
-  
-  // copy the parent stack in child stack and set stack pointer
-  void *down_copy = (void*)main_thread->tf->ebp + 16;
-  void *top_copy = (void*)main_thread->tf->esp;
-  uint copysize = (uint)(down_copy - top_copy);
-  child_thread->tf->esp = (uint) (stack + PGSIZE - copysize);
-  child_thread->tf->ebp = (uint) (stack + PGSIZE - 16);
-  memmove(stack + PGSIZE - copysize,top_copy,copysize);
-
-  // copy the open files
-  for(i = 0; i < NOFILE; i++)
-    if(main_thread->ofile[i])
-      child_thread->ofile[i] = filedup(main_thread->ofile[i]);
-  child_thread->cwd = idup(main_thread->cwd);
-
-  safestrcpy(child_thread->name, main_thread->name, sizeof(main_thread->name));
-
-  pid = child_thread->pid;
-
-  acquire(&ptable.lock);
-  child_thread->state = RUNNABLE;
-  release(&ptable.lock);
-
-  return pid;  
-}
-
-int join()
-{
   struct proc *p;
-  int haveKids, pid;
-  struct proc *curproc = myproc();
+  struct cpu *c = mycpu();
+  c->proc = 0;
 
+  for(;;){
+    // Enable interrupts on this processor.
+    sti();
+
+    // Loop over process table looking for process to run.
+
+    // lock the process table
+    acquire(&ptable.lock);
+
+    struct proc *lowest_vruntime_proc = 0;
+    int min_vruntime = INT_MAX;
+
+    // Find the process with the least virtual runtime
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->state == RUNNABLE) {
+        if(p->vruntime < min_vruntime) {
+          lowest_vruntime_proc = p;
+          min_vruntime = p->vruntime;
+        }
+      }
+    }
+
+    // If we found a process to run, switch to it.
+    if(lowest_vruntime_proc) {
+      p = lowest_vruntime_proc;
+      c->proc = p;
+      switchuvm(p);
+      p->state = RUNNING;
+
+      int quanta = 5;
+      // Run the process for the quantum duration.
+      for (int i = 0; i < quanta; i++) {
+        swtch(&(c->scheduler), p->context);
+        if (p->state != RUNNING) {
+          break;  // Process is done running
+        }
+      }
+
+      // Update virtual runtime of the process.
+      p->vruntime += quanta;
+
+      switchkvm();
+
+      // Process is done running for now.
+      // It should have changed its p->state before coming back.
+      c->proc = 0;
+    }
+
+    // Release the process table lock
+    release(&ptable.lock);
+  }
+}
+
+int 
+clone(void(*fcn)(void*,void*), void *arg1, void *arg2, void* stack)
+{
+  // new_proc:  create a new process by copying an existing one.
+
+  struct proc *new_proc;
+  struct proc *p = myproc();
+
+  // Allocate a new process
+  if((new_proc = allocproc()) == 0)
+    return -1;
+
+  // Copy the parent process's page 
+  // directory and size to the new process
+  new_proc->pgdir = p->pgdir;
+  new_proc->sz = p->sz;
+  // Set the parent of the new process 
+  // to the current process
+  new_proc->parent = p;
+  //copy process data to the new thread
+  *new_proc->tf = *p->tf;  
+  
+  // Set up the stack for the new process
+  void * sarg1, *sarg2, *sret;
+
+  sret = stack + PGSIZE - 3 * sizeof(void *);
+  *(uint*)sret = 0xFFFFFFF; // push return address to stack
+
+  sarg1 = stack + PGSIZE - 2 * sizeof(void *);
+  *(uint*)sarg1 = (uint)arg1; //push first argument to stack
+
+  sarg2 = stack + PGSIZE - 1 * sizeof(void *);
+  *(uint*)sarg2 = (uint)arg2; //push second argument to stack
+
+  // esp: Stack pointer
+  // ebp: Base pointer
+  // eip: Instruction pointer
+  // eax: Returns 0 in the child
+
+  new_proc->tf->esp = (uint) stack; //put address of new stack in the stack pointer(ESP)
+  new_proc->threadstack = stack; //save address of stack
+  new_proc->tf->esp += PGSIZE - 3 * sizeof(void*);
+  new_proc->tf->ebp = new_proc->tf->esp; //set stack pointer to address
+  new_proc->tf->eip = (uint) fcn; //set instruction pointer to function
+  new_proc->tf->eax = 0; //set eax so fork returns 0 in the child
+
+
+  // Copy open files and the current working 
+  // directory to the new process
+  int i;
+  for(i = 0; i < NOFILE; i++)
+    if(p->ofile[i])
+      new_proc->ofile[i] = filedup(p->ofile[i]);
+  new_proc->cwd = idup(p->cwd);
+
+  // Copy the name of the parent process to the new process
+  safestrcpy(new_proc->name, p->name, sizeof(p->name));
+
+  // Set the state of the new process to RUNNABLE
   acquire(&ptable.lock);
-  //check to see if any zombie childern
-  for(;;) {
-    haveKids = 0;
+  new_proc->state = RUNNABLE;
+  release(&ptable.lock);
+  return new_proc->pid;
+}
 
-    for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
-      if (p->parent != curproc || p->isthread != 1 )
-        continue; //check if a child thread
-      haveKids = 1;
 
-      if (p->state == ZOMBIE) {
+int
+join(void** stack)
+{
+  // kids: search through table looking for our kids
+  // procs: points to the proc structure that we want to find
+  // pid: is the ID number of the process we are searching for
+
+  struct proc *p;
+  int kids, pid;
+  struct proc *procs = myproc();
+  
+  // lock the process table
+  acquire(&ptable.lock);
+
+  //check to see if any zombie childern 
+  for(;;)
+  {
+    kids = 0;
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++) 
+    {
+      // Check if the process is a child of the current process
+      if(p->parent != procs || p->pgdir != p->parent->pgdir)
+        continue;//check if a child thread
+        
+      kids = 1;
+      // If the process is a zombie, reap it
+      if(p->state == ZOMBIE)
+      {
         pid = p->pid;
         kfree(p->kstack);
-        p->kstack = 0; //remove zombie child thread from k_stack
-        p->state = UNUSED;
+        p->kstack = 0;//remove zombie child thread from k_stack
+
+        // reset thread in process table
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
         p->killed = 0;
-        p->isthread = 0;
-
-        // Decrease size of memory because of freeing the stack
-        growproc(-1 * PGSIZE);
-        cprintf("current size of process: %d\n", (int)curproc->sz);
+        p->state = UNUSED;
+        stack = p->threadstack;
+        p->threadstack = 0; 
 
         release(&ptable.lock);
         return pid;
       }
     }
-    
-    if (!haveKids || curproc->killed) {
+
+    // If there are no child processes or the 
+    // current process has been killed, exit
+    if(!kids || procs->killed)
+    {
+      // unlock the process table
       release(&ptable.lock);
       return -1;
     }
 
-    sleep(curproc, &ptable.lock);
-
+    // Otherwise, wait for a child process to exit
+    sleep(procs, &ptable.lock);
   }
-  return 0;
 }
-
-// OUR CODE }
