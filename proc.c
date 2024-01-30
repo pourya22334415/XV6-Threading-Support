@@ -6,6 +6,9 @@
 #include "x86.h"
 #include "proc.h"
 #include "spinlock.h"
+// OUR CODE {
+#define INT_MAX 2147483647 
+// OUR CODE }
 
 struct {
   struct spinlock lock;
@@ -272,7 +275,7 @@ exit(void)
         p->parent = initproc;
         if(p->state == ZOMBIE)
           wakeup1(initproc);   
-        } // added closing braces 
+        }
         // OUR CODE }
     }
   }
@@ -302,14 +305,17 @@ wait(void)
       if(p->parent != curproc)
         continue;
       havekids = 1;
+
       // OUR CODE {
       found = 0;
       // OUR CODE }
+      
       if(p->state == ZOMBIE){
         // Found one.
         pid = p->pid;
         kfree(p->kstack);
         p->kstack = 0;
+      
         // OUR CODE {
         for (q = ptable.proc; q < &ptable.proc[NPROC]; q++)
           if (q->isthread && q->parent == p && q != p)
@@ -317,6 +323,7 @@ wait(void)
         if (!found)
           freevm(p->pgdir);
         // OUR CODE }
+      
         p->pid = 0;
         p->parent = 0;
         p->name[0] = 0;
@@ -352,33 +359,62 @@ scheduler(void)
   struct proc *p;
   struct cpu *c = mycpu();
   c->proc = 0;
-  
+
   for(;;){
     // Enable interrupts on this processor.
     sti();
 
     // Loop over process table looking for process to run.
     acquire(&ptable.lock);
-    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
-      if(p->state != RUNNABLE)
-        continue;
 
-      // Switch to chosen process.  It is the process's job
-      // to release ptable.lock and then reacquire it
-      // before jumping back to us.
+    // OUR CODE {
+
+    struct proc *lowest_vruntime_proc = 0;
+    int min_vruntime = INT_MAX;
+
+    // Find the process with the least virtual runtime
+    for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+      if(p->state == RUNNABLE) {
+        if(p->vruntime < min_vruntime) {
+          lowest_vruntime_proc = p;
+          min_vruntime = p->vruntime;
+        }
+      }
+    }
+
+    // If we found a process to run, switch to it.
+    if(lowest_vruntime_proc) {
+      p = lowest_vruntime_proc;
       c->proc = p;
       switchuvm(p);
       p->state = RUNNING;
 
-      swtch(&(c->scheduler), p->context);
+      // The quantum can be fixed or dynamic.
+      // For simplicity, let's use a fixed quantum.
+      int quanta = 5;
+
+      // Run the process for the quantum duration.
+      for (int i = 0; i < quanta; i++) {
+        swtch(&(c->scheduler), p->context);
+        if (p->state != RUNNING) {
+          break;  // Process is done running
+        }
+      }
+
+      // Update virtual runtime of the process.
+      // This can be weighted based on priority or other factors.
+      p->vruntime += quanta;
+
+    // OUR CODE }
+
       switchkvm();
 
       // Process is done running for now.
       // It should have changed its p->state before coming back.
       c->proc = 0;
     }
-    release(&ptable.lock);
 
+    release(&ptable.lock);
   }
 }
 
@@ -650,18 +686,19 @@ int join()
   struct proc *curproc = myproc();
 
   acquire(&ptable.lock);
+  //check to see if any zombie childern
   for(;;) {
     haveKids = 0;
 
     for (p = ptable.proc; p < &ptable.proc[NPROC]; p++) {
       if (p->parent != curproc || p->isthread != 1 )
-        continue;
+        continue; //check if a child thread
       haveKids = 1;
 
       if (p->state == ZOMBIE) {
         pid = p->pid;
         kfree(p->kstack);
-        p->kstack = 0;
+        p->kstack = 0; //remove zombie child thread from k_stack
         p->state = UNUSED;
         p->pid = 0;
         p->parent = 0;

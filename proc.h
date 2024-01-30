@@ -53,6 +53,7 @@ struct proc {
   struct proc *pthread;        // Parent thread
   int isthread;                // we change to indicate if it is a thread
   void *stack;
+  int vruntime;                // measure how much time a process has had on the CPU
   // OUR CODE }
 };
 
