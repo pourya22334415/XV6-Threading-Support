@@ -2,7 +2,9 @@
 #include "stat.h"
 #include "fcntl.h"
 #include "user.h"
+#include "mmu.h"
 #include "x86.h"
+
 
 char*
 strcpy(char *s, const char *t)
@@ -97,10 +99,64 @@ memmove(void *vdst, const void *vsrc, int n)
 {
   char *dst;
   const char *src;
-
   dst = vdst;
   src = vsrc;
   while(n-- > 0)
     *dst++ = *src++;
   return vdst;
+}
+
+// Define a function to initialize a lock
+int lock_init(lock_t *lock)
+{
+  // lock: the lock to initialize
+  // return: 0 if successful
+  lock->flag = 0;
+  return 0;
+}
+
+// Define a function to acquire a lock
+void lock_acquire(lock_t *lock)
+{
+  // xchg:  atomic exchange register
+
+  // Continuously exchange the flag of the 
+  // lock with 1 until it is 0
+  while(xchg(&lock->flag, 1) != 0);
+}
+
+// Define a function to release a lock
+void lock_release(lock_t *lock)
+{
+  // lock: the lock to release
+  // return: None
+  // xchg: atomic exchange register
+
+  // Set the flag of the lock to 0
+	xchg(&lock->flag, 0);
+}
+
+// Define a function to create a new thread
+int thread_create(void (*func)(void *, void *), void* arg1, void* arg2)
+{
+  // func: the function to execute in the new thread
+  // arg1: the first argument to pass to the function
+  // arg2: the second argument to pass to the function
+  // return: the thread ID if successful, -1 if an error occurred
+
+  // Allocate a stack for the new thread
+  void* stack;
+  stack = malloc(PGSIZE);
+
+  return clone(func, arg1, arg2, stack);
+}
+
+// Define a function to join a thread
+int thread_join()
+{
+  // return: the exit status of the joined thread
+  
+  void * stackPtr;
+  int x = join(&stackPtr);
+  return x;
 }
